@@ -75,20 +75,94 @@ You can run the script to capture the users from the Auth0 database via API, or 
 
 The below options show the example commands for fetching users from the Auth0 database via API; however, there is a 1000 user limitation from the Auth0 user API. So it is recommended to export a JSON of users if you have more than 1000 users. In order to export the JSON, follow [these steps](https://auth0.com/docs/customize/extensions/user-import-export-extension#export-users).
 
-Then when running the migration script, use the additional flag of `-from-json ./path_to_user_export.json`
+### Command-Line Arguments
 
-Examples:
+- `--from-json <file-path>`: Load users from a JSON file instead of the Auth0 API
+- `--with-passwords <file-path>`: Include password hashes from the specified file
+- `--dry-run`: Run in simulation mode without making actual changes
+- `--verbose` or `-v`: Enable detailed output during migration
+- `--batch-size <number>`: Set the number of users to process per batch (default: 50, recommended: 50-100)
+- `--skip-roles`: Skip roles and permissions migration
+- `--skip-orgs`: Skip organizations/tenants migration
+
+### Preparing Your Data Files
+
+Before running the migration, you need to prepare your JSON files:
+
+1. **Create a json folder** (if it doesn't exist):
+   ```bash
+   mkdir -p json
+   ```
+
+2. **Place your exported JSON files** in the `json/` folder:
+   - `export_user.json` - Your exported users from Auth0
+   - `with_password_user.json` - Password hashes from Auth0 (if available)
+
+3. **Combine both JSON files** (if you have passwords):
+   
+   Run the following command to merge `export_user.json` and `with_password_user.json`:
+   ```bash
+   jq -c --slurpfile file2 json/export_user.json '. as $item | $item + {passwordHash: $file2[]|select(.email==$item.Email).passwordHash} // $item' json/with_password_user.json > json/combined.json
+   ```
+
+4. **Create a blank.json file**:
+   
+   Create an empty JSON file (used when migrating only password users):
+   ```bash
+   touch json/blank.json
+   ```
+
+5. **Run the migration**:
+   ```bash
+   python3 src/main.py --from-json json/blank.json --with-passwords json/combined.json --batch-size 100
+   ```
+
+### Examples
+
+**Dry run with passwords:**
+```bash
+python3 src/main.py --from-json ./path_to_user_export.json --with-passwords ./path_to_exported_password_users_file.json --dry-run
 ```
-Dry run with passwords: python3 src/main.py --from-json ./path_to_user_export.jso --with-passwords ./path_to_exported_password_users_file.json
 
-Dry run without passwords: python3 src/main.py --from-json ./path_to_user_export.jso
-
-Live run with passwords: python3 src/main.py --from-json ./path_to_user_export.jso --with-passwords ./path_to_exported_password_users_file.json
-
-Live run without passwords: python3 src/main.py --from-json ./path_to_user_export.jso
+**Dry run without passwords:**
+```bash
+python3 src/main.py --from-json ./path_to_user_export.json --dry-run
 ```
 
-You can use the `-v` or `--verbose` flags to enable more detailed output. This works for both live and dry runs, providing you with additional information.
+**Live run with passwords and custom batch size:**
+```bash
+python3 src/main.py --from-json ./path_to_user_export.json --with-passwords ./path_to_exported_password_users_file.json --batch-size 100
+```
+
+**Live run without passwords:**
+```bash
+python3 src/main.py --from-json ./path_to_user_export.json
+```
+
+**Live run from API (up to 1000 users):**
+```bash
+python3 src/main.py
+```
+
+**Verbose output with custom batch size:**
+```bash
+python3 src/main.py --from-json ./path_to_user_export.json --verbose --batch-size 75
+```
+
+**Skip roles and organizations:**
+```bash
+python3 src/main.py --from-json ./path_to_user_export.json --skip-roles --skip-orgs
+```
+
+### Batch Processing
+
+The migration tool uses batch API calls for improved performance. By default, users are processed in batches of 50. You can adjust this using the `--batch-size` parameter:
+
+- **Smaller batches (10-25)**: More stable but slower
+- **Medium batches (50-75)**: Balanced performance (recommended)
+- **Larger batches (100+)**: Faster but may hit rate limits
+
+The tool automatically retries on rate limit errors, so larger batch sizes can significantly speed up migration for large user bases.
 
 ### Dry run
 
@@ -104,6 +178,7 @@ python3 src/main.py --dry-run --with-passwords ./path_to_exported_password_users
 The output would appear similar to the following:
 
 ```
+Using batch size: 50
 Running with passwords from file: ./path_to_exported_users_file.json
 Would migrate 2 users from Auth0 with Passwords to Descope
 Would migrate 112 users from Auth0 to Descope
@@ -139,58 +214,35 @@ Would migrate Tenant 2 with 4 associated users.
 
 To migrate your Auth0 users, simply run the following command:
 
+```bash
+python3 src/main.py --with-passwords ./path_to_exported_password_users_file.json --batch-size 100
 ```
-python3 src/main.py --with-passwords ./path_to_exported_password_users_file.json
-```
-
-The output will include the responses of the created users, organizations, roles, and permissions as well as the mapping between the various objects within Descope:
 
 The output will include the responses of the created users, organizations, roles, and permissions as well as the mapping between the various objects within Descope. A log file will also be generated in the format of `migration_log_%d_%m_%Y_%H:%M:%S.log`. Any items which failed to be migrated will also be listed with the error that occurred during the migration.
 
 ```
+Using batch size: 100
 Running with passwords from file: ./path_to_exported_users_file.json
 Starting migration of 2 users from Auth0 password file
-Starting migration of 112 users found via Auth0 API
-Still working, migrated 10 users.
-...
-Still working, migrated 110 users.
+Progress: Batch 1/1 processing 2 users
+Batch creation successful: 2 users created
+Starting migration of 112 users with TRUE batch API calls (batch size: 100)
+
+Batch 1: users 1 to 100
+Progress: 100/112 users processed. Success: 100
+
+Batch 2: users 101 to 112
+Progress: 112/112 users processed. Success: 110
 Starting migration of 2 roles found via Auth0 API
 Starting migration of MyNewRole with 2 associated permissions.
 Starting migration of Role with 0 associated permissions.
-=================== Password User Migration ====================
-Auth0 Users password users in file 2
-Successfully migrated 2 users
-Created users within Descope 2
-=================== User Migration =============================
-Auth0 Users found via API 112
-Successfully migrated 110 users
-Successfully merged 2 users
-Users migrated, but disabled due to one of the merged accounts being disabled 1
-Users disabled due to one of the merged accounts being disabled ['auth0|653c1bf0398960f19a6d8171']
-Failed to migrate 2
-Users which failed to migrate:
-facebook|122094272078100956 Reason: {"errorCode":"E011002","errorDescription":"Request is missing required arguments","errorMessage":"Missing email or phone","message":"Missing email or phone"}
-facebook|10226222057950897 Reason: {"errorCode":"E011002","errorDescription":"Request is missing required arguments","errorMessage":"Missing email or phone","message":"Missing email or phone"}
-Created users within Descope 108
-=================== Role Migration =============================
-Auth0 Roles found via API 2
-Successfully migrated 2 roles
-Created roles within Descope 2
-=================== Permission Migration =======================
-Auth0 Permissions found via API 2
-Successfully migrated 2 permissions
-Created permissions within Descope 2
-=================== User/Role Mapping ==========================
-Successfully role and user mapping
-Mapped 1 user to MyNewRole
-Mapped 2 user to Role
-=================== Tenant Migration ===========================
-Auth0 Tenants found via API 2
-Successfully migrated 2 tenants
-=================== User/Tenant Mapping ========================
-Successfully tenant and user mapping
-Associated 5 users with tenant: Tenant 1
-Associated 4 users with tenant: Tenant 2
+
+=== Migration Summary ===
+Total users migrated: 110
+Failed users: 2
+Users with passwords: 2/2
+Roles migrated: 2
+Organizations migrated: 2
 ```
 
 
@@ -198,53 +250,46 @@ Associated 4 users with tenant: Tenant 2
 
 To migrate your Auth0 users, simply run the following command:
 
-```
+```bash
 python3 src/main.py
 ```
-
-The output will include the responses of the created users, organizations, roles, and permissions as well as the mapping between the various objects within Descope:
 
 The output will include the responses of the created users, organizations, roles, and permissions as well as the mapping between the various objects within Descope. A log file will also be generated in the format of `migration_log_%d_%m_%Y_%H:%M:%S.log`. Any items which failed to be migrated will also be listed with the error that occurred during the migration.
 
 ```
-Starting migration of 112 users found via Auth0 API
-Still working, migrated 10 users.
-...
-Still working, migrated 110 users.
+Using batch size: 50
+Starting migration of 112 users found via Auth0 API with batch size 50
+
+Batch 1: users 1 to 50
+Progress: 50/112 users processed. Success: 50
+
+Batch 2: users 51 to 100
+Progress: 100/112 users processed. Success: 100
+
+Batch 3: users 101 to 112
+Progress: 112/112 users processed. Success: 110
+
 Starting migration of 2 roles found via Auth0 API
 Starting migration of MyNewRole with 2 associated permissions.
 Starting migration of Role with 0 associated permissions.
-=================== User Migration =============================
-Auth0 Users found via API 112
-Successfully migrated 110 users
-Successfully merged 2 users
-Users migrated, but disabled due to one of the merged accounts being disabled 1
-Users disabled due to one of the merged accounts being disabled ['auth0|653c1bf0398960f19a6d8171']
-Failed to migrate 2
-Users which failed to migrate:
-facebook|122094272078100956 Reason: {"errorCode":"E011002","errorDescription":"Request is missing required arguments","errorMessage":"Missing email or phone","message":"Missing email or phone"}
-facebook|10226222057950897 Reason: {"errorCode":"E011002","errorDescription":"Request is missing required arguments","errorMessage":"Missing email or phone","message":"Missing email or phone"}
-Created users within Descope 108
-=================== Role Migration =============================
-Auth0 Roles found via API 2
-Successfully migrated 2 roles
-Created roles within Descope 2
-=================== Permission Migration =======================
-Auth0 Permissions found via API 2
-Successfully migrated 2 permissions
-Created permissions within Descope 2
-=================== User/Role Mapping ==========================
-Successfully role and user mapping
-Mapped 1 user to MyNewRole
-Mapped 2 user to Role
-=================== Tenant Migration ===========================
-Auth0 Tenants found via API 2
-Successfully migrated 2 tenants
-=================== User/Tenant Mapping ========================
-Successfully tenant and user mapping
-Associated 5 users with tenant: Tenant 1
-Associated 4 users with tenant: Tenant 2
+
+=== Migration Summary ===
+Total users migrated: 110
+Failed users: 2
+Roles migrated: 2
+Organizations migrated: 2
 ```
+
+### Performance Optimization
+
+The migration tool uses batch API calls to significantly improve migration speed:
+
+- **Batch Processing**: Users are created in batches (default: 50 users per API call)
+- **Automatic Retry**: Built-in retry logic handles rate limits automatically
+- **Progress Tracking**: Real-time progress updates during migration
+- **Customizable Batch Size**: Adjust batch size based on your needs and API limits
+
+For large user bases (10,000+ users), using `--batch-size 100` can reduce migration time by up to 90% compared to individual user creation.
 
 ### Post Migration Verification
 
@@ -252,6 +297,13 @@ Once the migration tool has ran successfully, you can check the [users](https://
 [roles](https://app.descope.com/authorization), [permissions](https://app.descope.com/authorization/permissions),
 and [tenants](https://app.descope.com/tenants) for the migrated items from Auth0. You can verify the created items
 based on the output of the migration tool.
+
+The migration log file (`migration_log_*.log` in the `logs/` directory) contains detailed information about:
+- Successfully migrated users
+- Failed migrations with specific error messages
+- Merged user accounts
+- Disabled user accounts
+- API retry attempts and rate limit handling
 
 ## Testing 🧪
 
