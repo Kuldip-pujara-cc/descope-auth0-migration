@@ -109,35 +109,35 @@ def api_request_with_retry(action, url, headers, data=None, max_retries=4, timeo
 def fetch_auth0_users_from_file(file_path):
     """
     Fetch and parse Auth0 users from the provided file.
+    Uses JSON file directly without Auth0 API calls for faster processing.
     
     Returns:
     - all_users (list): A list of parsed Auth0 users if successful, empty list otherwise.
     """
-    file_users = []  # Renamed to avoid confusion with API users
     all_users = []
     with open(file_path, "r") as file:
         for line in file:
-            file_users.append(json.loads(line))
+            if line.strip():  # Skip empty lines
+                user_data = json.loads(line)
+                
+                # Normalize the user data structure
+                # Handle both Auth0 export formats (with "Id" or "user_id")
+                normalized_user = {
+                    "user_id": user_data.get("Id") or user_data.get("user_id"),
+                    "email": user_data.get("Email") or user_data.get("email"),
+                    "email_verified": user_data.get("Email Verified") or user_data.get("email_verified", False),
+                    "name": user_data.get("Name") or user_data.get("name", ""),
+                    "given_name": user_data.get("Given Name") or user_data.get("given_name", ""),
+                    "family_name": user_data.get("Family Name") or user_data.get("family_name", ""),
+                    "nickname": user_data.get("Nickname") or user_data.get("nickname", ""),
+                    "picture": user_data.get("Picture") or user_data.get("picture", ""),
+                    "created_at": user_data.get("Created At") or user_data.get("created_at", ""),
+                    "updated_at": user_data.get("Updated At") or user_data.get("updated_at", ""),
+                }
+                
+                all_users.append(normalized_user)
     
-    for user in file_users:
-        headers = {"Authorization": f"Bearer {AUTH0_TOKEN}"}
-        page = 0
-        per_page = 20
-        
-        while True:
-            response = api_request_with_retry(
-                "get",
-                f"https://{AUTH0_TENANT_ID}.us.auth0.com/api/v2/users?page={page}&per_page={per_page}&q=user_id:\"{user['user_id']}\"",
-                headers=headers,
-            )
-            if response.status_code != 200:
-                logging.error(f"Error fetching Auth0 users. Status code: {response.status_code}")
-                break  # Consider breaking instead of returning to continue with the next user
-            users_from_api = response.json()
-            if not users_from_api:
-                break
-            all_users.extend(users_from_api)
-            page += 1
+    logging.info(f"Loaded {len(all_users)} users from file: {file_path}")
     return all_users
 
 def fetch_auth0_users():
@@ -154,7 +154,7 @@ def fetch_auth0_users():
     while True:
         response = api_request_with_retry(
             "get",
-            f"https://{AUTH0_TENANT_ID}.us.auth0.com/api/v2/users?page={page}&per_page={per_page}",
+            f"https://{AUTH0_TENANT_ID}.au.auth0.com/api/v2/users?page={page}&per_page={per_page}",
             headers=headers,
         )
         if response.status_code != 200:
@@ -184,7 +184,7 @@ def fetch_auth0_roles():
     while True:
         response = api_request_with_retry(
             "get",
-            f"https://{AUTH0_TENANT_ID}.us.auth0.com/api/v2/roles?page={page}&per_page={per_page}",
+            f"https://{AUTH0_TENANT_ID}.au.auth0.com/api/v2/roles?page={page}&per_page={per_page}",
             headers=headers,
         )
         if response.status_code != 200:
@@ -215,7 +215,7 @@ def get_users_in_role(role):
     while True:
         response = api_request_with_retry(
             "get",
-            f"https://{AUTH0_TENANT_ID}.us.auth0.com/api/v2/roles/{role}/users?page={page}&per_page={per_page}",
+            f"https://{AUTH0_TENANT_ID}.au.auth0.com/api/v2/roles/{role}/users?page={page}&per_page={per_page}",
             headers=headers,
         )
         if response.status_code != 200:
@@ -248,7 +248,7 @@ def get_permissions_for_role(role):
     while True:
         response = api_request_with_retry(
             "get",
-            f"https://{AUTH0_TENANT_ID}.us.auth0.com/api/v2/roles/{role}/permissions?per_page={per_page}&page={page}",
+            f"https://{AUTH0_TENANT_ID}.au.auth0.com/api/v2/roles/{role}/permissions?per_page={per_page}&page={page}",
             headers=headers,
         )
         if response.status_code != 200:
@@ -279,7 +279,7 @@ def fetch_auth0_organizations():
     while True:
         response = api_request_with_retry(
             "get",
-            f"https://{AUTH0_TENANT_ID}.us.auth0.com/api/v2/organizations?per_page={per_page}&page={page}",
+            f"https://{AUTH0_TENANT_ID}.au.auth0.com/api/v2/organizations?per_page={per_page}&page={page}",
             headers=headers,
         )
         if response.status_code != 200:
@@ -312,7 +312,7 @@ def fetch_auth0_organization_members(organization):
     while True:
         response = api_request_with_retry(
             "get",
-            f"https://{AUTH0_TENANT_ID}.us.auth0.com/api/v2/organizations/{organization}/members?per_page={per_page}&page={page}",
+            f"https://{AUTH0_TENANT_ID}.au.auth0.com/api/v2/organizations/{organization}/members?per_page={per_page}&page={page}",
             headers=headers,
         )
         if response.status_code != 200:
@@ -398,28 +398,55 @@ def create_descope_user(user):
     Create a Descope user based on matched Auth0 user data using Descope Python SDK.
 
     Args:
-    - user (dict): A dictionary containing user details fetched from Auth0 API.
+    - user (dict): A dictionary containing user details fetched from Auth0 API or JSON file.
     """
     try:
         login_ids = []
         connections = []
-        for identity in user.get("identities", []):
-            if "Username" in identity["connection"]:
-                login_ids.append(user.get("email"))
-                connections.append(identity["connection"])
-            elif "sms" in identity["connection"]:
-                login_ids.append(user.get("phone_number"))
-                connections.append(identity["connection"])
-            elif "-" in identity["connection"]:
-                login_ids.append(
-                    identity["connection"].split("-")[0] + "-" + identity["user_id"]
-                )
-                connections.append(identity["connection"])
+        
+        # Handle identities if present (from API)
+        identities = user.get("identities", [])
+        
+        if identities:
+            # Original logic for API data with identities
+            for identity in identities:
+                if "Username" in identity["connection"]:
+                    login_ids.append(user.get("email"))
+                    connections.append(identity["connection"])
+                elif "sms" in identity["connection"]:
+                    login_ids.append(user.get("phone_number"))
+                    connections.append(identity["connection"])
+                elif "-" in identity["connection"]:
+                    login_ids.append(
+                        identity["connection"].split("-")[0] + "-" + identity["user_id"]
+                    )
+                    connections.append(identity["connection"])
+                else:
+                    login_ids.append(identity["connection"] + "-" + identity["user_id"])
+                    connections.append(identity["connection"])
+        else:
+            # Handle JSON file data without identities field
+            # Use email as primary login ID, or construct from user_id
+            email = user.get("email")
+            user_id = user.get("user_id", "")
+            
+            if email:
+                login_ids.append(email)
+            elif user_id:
+                login_ids.append(user_id)
             else:
-                login_ids.append(identity["connection"] + "-" + identity["user_id"])
-                connections.append(identity["connection"])
+                # Skip users without email or user_id
+                logging.warning(f"Skipping user without email or user_id: {user}")
+                return False, None, None, user.get("name", "unknown")
+            
+            connections.append("imported-from-json")
 
         emails = [user.get("email")]
+        
+        # Check if we have valid login_ids
+        if not login_ids or len(login_ids) == 0:
+            logging.error(f"No valid login_id found for user: {user.get('email', user.get('user_id', 'unknown'))}")
+            return False, None, None, user.get("user_id", "unknown")
 
         users = []
         try:
@@ -431,9 +458,14 @@ def create_descope_user(user):
         if len(users) == 0:
             login_id = login_ids[0]
             email = user.get("email")
-            phone = (
-                user.get("phone_number") if identity.get("provider") == "sms" else None
-            )
+            # Check if user has phone number and if it's from SMS provider
+            phone = None
+            if identities:
+                for identity in identities:
+                    if identity.get("provider") == "sms":
+                        phone = user.get("phone_number")
+                        break
+            
             display_name = user.get("name")
             given_name = user.get("given_name")
             family_name = user.get("family_name")
@@ -495,8 +527,8 @@ def create_descope_user(user):
             else:
                 family_name = user_to_update["familyName"]
 
-            custom_attributes = user_to_update["customAttributes"]
-            if "connection" in user_to_update["customAttributes"]:
+            custom_attributes = user_to_update.get("customAttributes") or {}
+            if custom_attributes and "connection" in custom_attributes:
                 for connection in custom_attributes["connection"].split(","):
                     if connection in connections:
                         connections.remove(connection)
@@ -513,7 +545,7 @@ def create_descope_user(user):
                     return None, "", True, user.get("user_id")
                 return None, "", None, ""
             additional_connections = ",".join(map(str, connections))
-            if "connection" in user_to_update["customAttributes"] and additional_connections:
+            if custom_attributes and "connection" in custom_attributes and additional_connections:
                 custom_attributes["connection"] += "," + additional_connections
             else:
                 custom_attributes["connection"] = additional_connections
@@ -640,56 +672,185 @@ def check_role_exists_descope(role_name):
 ### Begin Process Functions
 
 
-def process_users(api_response_users, dry_run, from_json, verbose):
+def create_descope_users_batch(users_batch, verbose=False):
     """
-    Process the list of users from Auth0 by mapping and creating them in Descope.
+    Create multiple users in a single batch API call to Descope.
+    This dramatically reduces API calls and speeds up migration.
+    
+    Returns: (success_count, failed_users, merged_users, disabled_mismatch)
+    """
+    import time
+    
+    new_user_objects = []
+    new_users_map = {}
+    
+    success_count = 0
+    failed_users = []
+    merged_users = []
+    disabled_users_mismatch = []
+    
+    # Build UserObj list for batch creation (skip existence check for speed)
+    for user in users_batch:
+        try:
+            email = user.get("email")
+            if not email:
+                failed_users.append(user.get('user_id', 'unknown'))
+                continue
+            
+            login_ids = []
+            connections = []
+            identities = user.get("identities", [])
+            
+            if identities:
+                for identity in identities:
+                    if "Username" in identity["connection"]:
+                        login_ids.append(email)
+                        connections.append(identity["connection"])
+                    elif "sms" in identity["connection"]:
+                        login_ids.append(user.get("phone_number"))
+                        connections.append(identity["connection"])
+                    elif "-" in identity["connection"]:
+                        login_ids.append(identity["connection"].split("-")[0] + "-" + identity["user_id"])
+                        connections.append(identity["connection"])
+                    else:
+                        login_ids.append(identity["connection"] + "-" + identity["user_id"])
+                        connections.append(identity["connection"])
+            else:
+                login_ids.append(email)
+                connections.append("imported-from-json")
+            
+            if not login_ids:
+                failed_users.append(email)
+                continue
+            
+            # Build custom attributes including nickname
+            custom_attrs = {
+                "connection": ",".join(connections),
+                "freshlyMigrated": True,
+            }
+            # Add nickname to custom attributes since UserObj doesn't have a nickname field
+            if user.get("nickname"):
+                custom_attrs["nickname"] = user.get("nickname")
+            
+            user_obj = UserObj(
+                login_id=login_ids[0],
+                email=email,
+                display_name=user.get("name") or user.get("nickname") or email,
+                given_name=user.get("given_name"),
+                family_name=user.get("family_name"),
+                phone=user.get("phone_number") if identities else None,
+                picture=user.get("picture"),
+                custom_attributes=custom_attrs,
+                verified_email=user.get("email_verified", False),
+                verified_phone=user.get("phone_verified", False) if user.get("phone_number") else False,
+                additional_login_ids=login_ids[1:] if len(login_ids) > 1 else [],
+            )
+            new_user_objects.append(user_obj)
+            new_users_map[email] = user
+            
+        except Exception as e:
+            logging.error(f"Error preparing user {user.get('email', 'unknown')}: {e}")
+            failed_users.append(user.get('email', 'unknown'))
+    
+    # Batch create with retry
+    if new_user_objects:
+        max_retries = 3
+        retry_count = 0
+        
+        while retry_count <= max_retries:
+            try:
+                descope_client.mgmt.user.invite_batch(
+                    users=new_user_objects,
+                    invite_url="https://localhost",
+                    send_mail=False,
+                    send_sms=False
+                )
+                
+                # Update status for blocked users
+                for user_obj in new_user_objects:
+                    try:
+                        original_user = new_users_map.get(user_obj.email)
+                        if original_user and original_user.get("blocked", False):
+                            descope_client.mgmt.user.deactivate(login_id=user_obj.login_id)
+                    except:
+                        pass
+                
+                success_count = len(new_user_objects)
+                break
+                
+            except AuthException as error:
+                error_msg = str(error.error_message) if hasattr(error, 'error_message') else str(error)
+                
+                if 'E130429' in error_msg or 'rate limit' in error_msg.lower():
+                    retry_count += 1
+                    if retry_count <= max_retries:
+                        wait_time = 60 * retry_count
+                        print(f"  Rate limit. Waiting {wait_time}s... (retry {retry_count}/{max_retries})")
+                        time.sleep(wait_time)
+                    else:
+                        for user_obj in new_user_objects:
+                            failed_users.append(user_obj.email)
+                        break
+                else:
+                    logging.error(f"Batch creation failed: {error_msg}")
+                    for user_obj in new_user_objects:
+                        failed_users.append(user_obj.email)
+                    break
+    
+    return success_count, failed_users, merged_users, disabled_users_mismatch
+
+
+def process_users(api_response_users, dry_run, from_json, verbose, batch_size=50):
+    """
+    Process users with TRUE batch API calls - creates 50 users per API call instead of 1.
 
     Args:
-    - api_response_users (list): A list of users fetched from Auth0 API.
+    - api_response_users (list): A list of users fetched from Auth0 API or JSON file.
+    - batch_size (int): Number of users to create per API call (default: 50)
     """
     failed_users = []
     successful_migrated_users = 0
     merged_users = []
     disabled_users_mismatch = []
     
-    inital_custom_attributes = {"connection": "String","freshlyMigrated":"Boolean"}
-    create_custom_attributes_in_descope(inital_custom_attributes)
+    # inital_custom_attributes = {"connection": "String","freshlyMigrated":"Boolean"}
+    # create_custom_attributes_in_descope(inital_custom_attributes)
 
     if dry_run:
         print(f"Would migrate {len(api_response_users)} users from Auth0 to Descope")
         if verbose:
             for user in api_response_users:
-                print(f"\tUser: {user['name']}")
+                print(f"\tUser: {user.get('name', user.get('email', 'unknown'))}")
 
     else:
         if from_json:
             print(
-            f"Starting migration of {len(api_response_users)} users found via Auth0 user Export"
+            f"Starting migration of {len(api_response_users)} users with TRUE batch API calls (batch size: {batch_size})"
             )
         else:
             print(
-            f"Starting migration of {len(api_response_users)} users found via Auth0 API"
+            f"Starting migration of {len(api_response_users)} users found via Auth0 API with batch size {batch_size}"
             )
-        for user in api_response_users:
+        
+        # Process users with TRUE batch API calls
+        for i in range(0, len(api_response_users), batch_size):
+            batch = api_response_users[i:i + batch_size]
+            
             if verbose:
-                print(f"\tUser: {user['name']}")
-
-            success, merged, disabled_mismatch, user_id_error = create_descope_user(
-                user
-            )
-            if success:
-                successful_migrated_users += 1
-                if merged:
-                    merged_users.append(merged)
-                    if success and disabled_mismatch:
-                        disabled_users_mismatch.append(user_id_error)
-            elif success == None:
-                if success == None and disabled_mismatch:
-                    disabled_users_mismatch.append(user_id_error)
-            else:
-                failed_users.append(user_id_error)
-            if successful_migrated_users % 10 == 0 and successful_migrated_users > 0 and not verbose:
-                print(f"Still working, migrated {successful_migrated_users} users.")
+                print(f"\nBatch {i//batch_size + 1}: users {i+1} to {min(i+batch_size, len(api_response_users))}")
+            
+            # Single API call for the entire batch!
+            batch_success, batch_failed, batch_merged, batch_disabled = create_descope_users_batch(batch, verbose)
+            
+            successful_migrated_users += batch_success
+            failed_users.extend(batch_failed)
+            merged_users.extend(batch_merged)
+            disabled_users_mismatch.extend(batch_disabled)
+            
+            # Progress update
+            if (i + batch_size) % 100 == 0 or (i + batch_size) >= len(api_response_users):
+                print(f"Progress: {min(i + batch_size, len(api_response_users))}/{len(api_response_users)} users processed. Success: {successful_migrated_users}")
+                
     return (
         failed_users,
         successful_migrated_users,
@@ -859,10 +1020,10 @@ def read_auth0_export(file_path):
     - list: A list of parsed Auth0 user data.
     """
     with open(file_path, "r") as file:
-        data = [json.loads(line) for line in file]
+        data = [json.loads(line) for line in file if line.strip()]
     return data
 
-def process_users_with_passwords(file_path, dry_run, verbose):
+def process_users_with_passwords(file_path, dry_run, verbose, batch_size=50):
     users = read_auth0_export(file_path)
     successful_password_users = 0
     failed_password_users = []
@@ -873,31 +1034,108 @@ def process_users_with_passwords(file_path, dry_run, verbose):
         )
         if verbose:
             for user in users:
-                print(f"\tuser: {user['name']}")
+                print(f"\tuser: {user.get('email', 'unknown')}")
 
     else:
         print(
-            f"Starting migration of {len(users)} users from Auth0 password file"
+            f"Starting migration of {len(users)} users from Auth0 password file with batch size {batch_size}"
         )
-        for user in users:
-            extracted_user = {
-                'email_verified': user['email_verified'],
-                'email': user['email'],
-                'connection': user['connection'],
-                'passwordHash': user['passwordHash']
-            }
-            user_object = build_user_object_with_passwords(extracted_user)
-            success = create_users_with_passwords(user_object)
-            #user = fetch_auth0_password_user(user['email'])
-            if success:
-                successful_password_users += 1
-            else:
-                failed_password_users += 1
-                failed_password_users.append(user['email'])
+        
+        # Process users in batches
+        for i in range(0, len(users), batch_size):
+            batch = users[i:i + batch_size]
+            user_objects = []
+            
+            for user in batch:
+                try:
+                    login_ids = []
+                    connections = []
+                    identities = user.get("identities", [])
+                    email = user.get('email', '')
+                
+                    
+                    if identities:
+                        for identity in identities:
+                            if "type" in identity and identity["type"] == "email":
+                                login_ids.append(email)
+                                connections.append(identity["type"])
+                                connections.append(identity["connection"])
+                            elif "sms" in identity["connection"]:
+                                login_ids.append(user.get("phone_number"))
+                                connections.append(identity["connection"])
+                            elif "-" in identity["connection"]:
+                                login_ids.append(identity["connection"].split("-")[0] + "-" + identity["user_id"])
+                                connections.append(identity["connection"])
+                            else:
+                                login_ids.append(identity["connection"] + "-" + identity["user_id"])
+                                connections.append(identity["connection"])
+                    else:
+                        login_ids.append(email)
+                        connections.append("imported-from-json")
+                    
+
+
+                    extracted_user = {
+                        'email_verified': user.get('email_verified', False),
+                        'email': user.get('email', ''),
+                        'connection': user.get('connection', ''),
+                        'passwordHash': user.get('passwordHash', ''),
+                        "user_id": user.get("Id") or user.get("user_id"),
+                        "email": user.get("Email") or user.get("email"),
+                        "email_verified": user.get("Email Verified") or user.get("email_verified", False),
+                        "name": user.get("Name") or user.get("name", ""),
+                        "given_name": user.get("Given Name") or user.get("given_name", ""),
+                        "family_name": user.get("Family Name") or user.get("family_name", ""),
+                        "nickname": user.get("Nickname") or user.get("nickname", ""),
+                        "picture": user.get("Picture") or user.get("picture", ""),
+                        "created_at": user.get("Created At") or user.get("created_at", ""),
+                        "updated_at": user.get("Updated At") or user.get("updated_at", ""),
+                    }
+                    if extracted_user['email']:
+                        user_obj = build_user_object_with_passwords(extracted_user)
+                        user_objects.extend(user_obj)  # user_obj is already a list
+                    else:
+                        user_obj = build_user_object_with_passwords(extracted_user)
+                        logging.warning(f"Skipping user with missing email or password: {user}")
+                        failed_password_users.append(extracted_user['email'] or 'unknown')
+                except Exception as e:
+                    logging.error(f"Error preparing user {user.get('email', 'unknown')}: {e}")
+                    failed_password_users.append(user.get('email', 'unknown'))
+            
+            # Create batch of users
+            if user_objects:
+                success_count, failed_list = create_users_with_passwords_batch(user_objects)
+                successful_password_users += success_count
+                failed_password_users.extend(failed_list)
+                
+                if (i + batch_size) % 100 == 0 or (i + batch_size) >= len(users):
+                    print(f"Progress: {min(i + batch_size, len(users))}/{len(users)} users processed")
+                    
     return len(users), successful_password_users, failed_password_users
 
 
 def build_user_object_with_passwords(extracted_user):
+    if not extracted_user['passwordHash']:
+        logging.warning(f"Migrating user without password hash: {extracted_user['email']}")
+        return [
+            UserObj(
+                login_id=extracted_user['email'],
+                email=extracted_user['email'],
+                verified_email=True,#extracted_user['email_verified'],
+                custom_attributes = {
+                    "connection": "Username-Password-Authentication", #database name
+                    "freshlyMigrated": True,
+                },
+                phone=extracted_user.get('phone_number'),
+                display_name=extracted_user.get('name') or extracted_user.get('nickname') or extracted_user['email'],
+                given_name=extracted_user.get('given_name'),
+                family_name=extracted_user.get('family_name'),
+                picture=extracted_user.get('picture'),
+                additional_login_ids=[],
+            )
+        ]
+
+    #else
     userPasswordToCreate=UserPassword(
         hashed=UserPasswordBcrypt(
             hash=extracted_user['passwordHash']
@@ -910,15 +1148,21 @@ def build_user_object_with_passwords(extracted_user):
             verified_email=True,#extracted_user['email_verified'],
             password=userPasswordToCreate,
             custom_attributes = {
-                "connection": "Username-Password-Authentication",
+                "connection": "Username-Password-Authentication", #database name
                 "freshlyMigrated": True,
-            }
+            },
+            phone=extracted_user.get('phone_number'),
+            display_name=extracted_user.get('name') or extracted_user.get('nickname') or extracted_user['email'],
+            given_name=extracted_user.get('given_name'),
+            family_name=extracted_user.get('family_name'),
+            picture=extracted_user.get('picture'),
+            additional_login_ids=[],
         )
     ]
     return user_object
 
 def create_users_with_passwords(user_object):
-    # Create the user
+    # Create the user (kept for backward compatibility)
     try:
         resp = descope_client.mgmt.user.invite_batch(
             users=user_object,
@@ -931,6 +1175,61 @@ def create_users_with_passwords(user_object):
         logging.error("Unable to create user with password.")
         logging.error(f"Error:, {error.error_message}")
         return False
+
+def create_users_with_passwords_batch(user_objects, max_retries=3):
+    """
+    Create multiple users with passwords in batch with rate limit handling.
+    
+    Args:
+    - user_objects (list): List of UserObj to create
+    - max_retries (int): Maximum number of retries on rate limit
+    
+    Returns:
+    - success_count (int): Number of successfully created users
+    - failed_users (list): List of email addresses that failed
+    """
+    import time
+    
+    success_count = 0
+    failed_users = []
+    retry_count = 0
+    
+    while retry_count <= max_retries:
+        try:
+            resp = descope_client.mgmt.user.invite_batch(
+                users=user_objects,
+                invite_url="https://localhost",
+                send_mail=False,
+                send_sms=False
+            )
+            success_count = len(user_objects)
+            return success_count, failed_users
+            
+        except AuthException as error:
+            error_msg = str(error.error_message) if hasattr(error, 'error_message') else str(error)
+            
+            # Check if it's a rate limit error
+            if 'E130429' in error_msg or 'rate limit' in error_msg.lower():
+                retry_count += 1
+                if retry_count <= max_retries:
+                    # Extract retry-after time or use exponential backoff
+                    wait_time = 60 * retry_count  # Exponential backoff: 60, 120, 180 seconds
+                    logging.warning(f"Rate limit hit. Waiting {wait_time} seconds before retry {retry_count}/{max_retries}")
+                    print(f"Rate limit reached. Waiting {wait_time} seconds... (retry {retry_count}/{max_retries})")
+                    time.sleep(wait_time)
+                else:
+                    logging.error(f"Max retries reached. Failed to create batch of {len(user_objects)} users")
+                    for user_obj in user_objects:
+                        failed_users.append(user_obj.email)
+                    return success_count, failed_users
+            else:
+                # Non-rate-limit error - fail the batch
+                logging.error(f"Unable to create user batch: {error_msg}")
+                for user_obj in user_objects:
+                    failed_users.append(user_obj.email)
+                return success_count, failed_users
+    
+    return success_count, failed_users
     
 def create_custom_attributes_in_descope(custom_attr_dict):
     """
@@ -1003,7 +1302,7 @@ def create_custom_attributes_in_descope(custom_attr_dict):
 #     user = []
 #     response = api_request_with_retry(
 #         "get",
-#         f"https://{AUTH0_TENANT_ID}.us.auth0.com/api/v2/users-by-email?email=chris%40wa9pie.net",
+#         f"https://{AUTH0_TENANT_ID}.au.auth0.com/api/v2/users-by-email?email=chris%40wa9pie.net",
 #         headers=headers,
 #     )
 #     if response.status_code != 200:
