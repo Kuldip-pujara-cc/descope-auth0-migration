@@ -39,6 +39,7 @@ AUTH0_TOKEN = os.getenv("AUTH0_TOKEN")
 AUTH0_TENANT_ID = os.getenv("AUTH0_TENANT_ID")
 DESCOPE_PROJECT_ID = os.getenv("DESCOPE_PROJECT_ID")
 DESCOPE_MANAGEMENT_KEY = os.getenv("DESCOPE_MANAGEMENT_KEY")
+DESCOPE_BASE_URL = os.getenv("DESCOPE_BASE_URL")
 
 try:
     descope_client = DescopeClient(
@@ -813,8 +814,8 @@ def process_users(api_response_users, dry_run, from_json, verbose, batch_size=50
     merged_users = []
     disabled_users_mismatch = []
     
-    # inital_custom_attributes = {"connection": "String","freshlyMigrated":"Boolean"}
-    # create_custom_attributes_in_descope(inital_custom_attributes)
+    inital_custom_attributes = {"connection": "String","freshlyMigrated":"Boolean"}
+    create_custom_attributes_in_descope(inital_custom_attributes)
 
     if dry_run:
         print(f"Would migrate {len(api_response_users)} users from Auth0 to Descope")
@@ -1263,7 +1264,7 @@ def create_custom_attributes_in_descope(custom_attr_dict):
     # Combine all custom attribute post request bodies into one
     # Request for custom attributes to be created using a post request
     try:
-        endpoint = "https://api.descope.com/v1/mgmt/user/customattribute/create"
+        endpoint = f"{DESCOPE_BASE_URL}/mgmt/user/customattribute/create"
         data = {"attributes":custom_attr_post_body}
         headers = {
             "Authorization": f"Bearer {DESCOPE_PROJECT_ID}:{DESCOPE_MANAGEMENT_KEY}",

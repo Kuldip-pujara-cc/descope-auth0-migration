@@ -34,17 +34,21 @@ pip3 install -r requirements.txt
 
 You can change the name of the `.env.example` file to `.env` to use as a template.
 
-```
-AUTH0_TOKEN=Your_Auth0_Token // Required, this is generated within Auth0
-AUTH0_TENANT_ID=Your_Auth0_Tenant_ID // Required, this is the tenant ID of your tenant within Auth0
-DESCOPE_PROJECT_ID=Your_Descope_Project_ID // Required, this is your Descope ProjectId
-DESCOPE_MANAGEMENT_KEY=Your_Descope_Project_ID // Required, this is your Descope Management Key
+```env
+AUTH0_TOKEN=Your_Auth0_Token
+AUTH0_TENANT_ID=Your_Auth0_Tenant_ID
+DESCOPE_PROJECT_ID=Your_Descope_Project_ID
+DESCOPE_MANAGEMENT_KEY=Your_Descope_Management_Key
+DESCOPE_BASE_URL=Your_Descope_Base_URL
 ```
 
-a. To get an Auth0 token, go [here](https://manage.auth0.com/#/apis/management/explorer), then copy the token to your
-`.env` file. These tokens are only valid for 24 hours by default.
+**a. AUTH0_TOKEN** (Required)
 
-b. To get your Auth0 Tenant ID, it can be found in the URL of your Auth0 dashboard. For example, when you login to Auth0, your URL might look something like this:
+To get an Auth0 token, go [here](https://manage.auth0.com/#/apis/management/explorer), then copy the token to your `.env` file. These tokens are only valid for 24 hours by default.
+
+**b. AUTH0_TENANT_ID** (Required)
+
+Your Auth0 Tenant ID can be found in the URL of your Auth0 dashboard. For example, when you login to Auth0, your URL might look something like this:
 
 ```
 https://manage.auth0.com/dashboard/us/dev-xyz/
@@ -52,11 +56,26 @@ https://manage.auth0.com/dashboard/us/dev-xyz/
 
 Your tenant ID is: `dev-xyz`. You can also read more about it [here](https://auth0.com/docs/get-started/tenant-settings/find-your-tenant-name-or-tenant-id).
 
-c. To get your Descope Project ID, go [here](https://app.descope.com/settings/project), then copy the project ID to your
-`.env` file.
+**c. DESCOPE_PROJECT_ID** (Required)
 
-d. To create a Descope Management Key, go [here](https://app.descope.com/settings/company/managementkeys), then copy
-the token to your `.env` file.
+To get your Descope Project ID, go [here](https://app.descope.com/settings/project), then copy the project ID to your `.env` file.
+
+**d. DESCOPE_MANAGEMENT_KEY** (Required)
+
+To create a Descope Management Key, go [here](https://app.descope.com/settings/company/managementkeys), then copy the token to your `.env` file.
+
+**e. DESCOPE_BASE_URL** (Required)
+
+Set the base URL based on your Descope project's region:
+
+- **US Region**: `https://api.descope.com/v1` (or `https://CNAME.descope.com/v1` if using a custom domain)
+- **EU Region**: `https://euc1.descope.com/v1` (or `https://CNAME.euc1.descope.com/v1` if using a custom domain)
+- **AU Region**: `https://api.aps2.descope.com/v1` (or `https://CNAME.aps2.descope.com/v1` if using a custom domain)
+
+Example for AU Region:
+```env
+DESCOPE_BASE_URL=https://api.aps2.descope.com/v1
+```
 
 6. The tool depends on a few custom user attributes that will automatically be created for you. The below outlines the machine names of the attributes created within the [user's custom attributes](https://app.descope.com/users/attributes) section of the Descope console.
 
